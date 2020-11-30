@@ -1,0 +1,1007 @@
+---
+title: 'Price Elastcity of Demand Analysis - WISH e-Commerce Platform'
+author: "Chetana Katpally"
+output:
+  html_document:
+    code_folding: show
+    df_print: paged
+    highlight: tango
+    number_sections: yes
+    theme: paper
+    toc: yes
+    toc_depth: 3
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Introduction 
+
+## Competition description
+
+The description is at this link - https://www.kaggle.com/jmmvutu/summer-products-and-sales-in-ecommerce-wish
+
+# Exploratory Data Analysis
+
+## Loading required libraries
+
+Loading required libraries into R workspace
+```{r, message=FALSE, warning=FALSE}
+if (!require(readr)) install.packages('readr', dependencies=TRUE)
+if (!require(psych)) install.packages('psych', dependencies=TRUE)
+if (!require(dplyr)) install.packages('dplyr', dependencies=TRUE)
+if (!require(caret)) install.packages('caret', dependencies=TRUE)
+if (!require(corrplot)) install.packages('corrplot', dependencies=TRUE)
+if (!require(purrr)) install.packages('purrr', dependencies=TRUE)
+if (!require(randomForest)) install.packages('randomForest', dependencies=TRUE)
+if (!require(stringr)) install.packages('stringr', dependencies=TRUE)
+if (!require(plotmo)) install.packages('plotmo', dependencies=TRUE)
+if(!require(car)) install.packages('car', dependencies = TRUE)
+if(!require(boot)) install.packages('boot', dependencies = TRUE)
+if(!require(MASS)) install.packages('MASS', dependencies = TRUE)
+if (!require(glmnet)) install.packages('glmnet', dependencies = TRUE)
+if (!require(xgboost)) install.packages('xgboost', dependencies = TRUE)
+if (!require(reticulate)) install.packages('reticulate', dependencies = TRUE)
+if (!require(e1071)) install.packages('e1071', dependencies = TRUE)
+if (!require(pls)) install.packages('pls', dependencies = TRUE)
+if (!require(lars)) install.packages('lars', dependencies = TRUE)
+if (!require(elasticnet)) install.packages('elasticnet', dependencies = TRUE)
+if (!require(ordinal)) install.packages('ordinal', dependencies = TRUE)
+if (!require(DescTools)) install.packages('DescTools', dependencies = TRUE)
+
+
+library(readr)
+library(DescTools)
+library(psych)
+library(dplyr)
+library(caret)
+library(corrplot)
+library(purrr)
+library(stringr)
+library(randomForest)
+library(plotmo)
+library(car)
+library(glmnet)
+library(boot) 
+library(MASS)
+library(xgboost)
+library(reticulate)
+library(e1071)
+library(pls)
+library(lars)
+library(elasticnet)
+library(ordinal)
+
+
+```
+
+### Source R functions
+
+```{r}
+source("functions.R")
+
+```
+
+
+## Reading CSV's
+
+Reading the datafiles as dataframes into R.
+
+```{r}
+df <- read_csv("summer-products-with-rating-and-performance_2020-08.csv")
+df$tags <- tolower(df$tags)
+# subset the data for specific categories of clothes
+#df <- df[which(df$tags %like any% c("%summer%", "%fashion%", "%women%","%casual%", "%plus size%", "%sleeveless%", "%dress%","%shorts%", "%tops%", "%sexy%", "%beach%", "%sleeve%")),]
+#unique_categories <- read_csv("unique-categories.csv")
+#unique_categories_count <- read_csv("unique-categories.sorted-by-count.csv")
+```
+
+## Data Description & Structure
+
+```{r }
+# Dimensions
+dim(df)
+
+#Check if data contains missing values
+sum(is.na(df))
+
+#Show the  missing values with their row id's
+df_na <- df[rowSums(is.na(df)) > 0,]
+df_na
+
+#Check for the column types
+as.data.frame(cbind(lapply(df, class)))
+
+
+#Show the  missing value counts with their column names
+NAcol <- which(colSums(is.na(df)) > 0)
+df_na <- sort(colSums(sapply(df[NAcol], is.na)), decreasing = TRUE)
+df_na
+
+
+#subset by numeric and charater type and get a count of missing values for each variable
+#Count of NAs in numeric columns
+numeric_cols <- unlist(sapply(df, is.numeric))
+dfNum <- df[, numeric_cols]
+describe(dfNum)
+dfNum_NA <- sort(sapply(dfNum, function(x) sum(is.na(x))), decreasing=TRUE)
+dfNum_NA <- dfNum_NA[dfNum_NA>0]
+dfNum_NA
+
+#str(dfChar)
+#Count of NAs is charater columns
+dfChar <- df[,!numeric_cols]
+dfChar_NA <- sort(sapply(dfChar, function(x) sum(is.na(x))), decreasing=TRUE)
+dfChar_NA <- dfChar_NA[dfChar_NA>0]
+dfChar_NA
+
+
+```
+
+
+## Handling Missing Data, Factoring, Encoding {.tabset}
+
+Evaluate variables "product_color", "product_variation_size_id", "shipping_option_name", "urgency_text", "origin_country", "tags"
+
+### Handle NA's
+```{r }
+df$has_urgency_banner[is.na(df$urgency_text)] <- 0
+df$merchant_profile_picture[(df$merchant_has_profile_picture == 0)] <- 'None'
+```
+
+### Rating Variables
+```{r }
+#Should we really give a zero rating for product that did not have any rating count? What should be the basis for giving a zero rating?
+df$rating_five_count[(df$rating_count==0)] <- 0
+df$rating_four_count[(df$rating_count==0)] <- 0
+df$rating_three_count[(df$rating_count==0)] <- 0
+df$rating_two_count[(df$rating_count==0)] <- 0
+df$rating_one_count[(df$rating_count==0)] <- 0
+
+
+
+```
+
+
+### product_color
+```{r }
+###Assign "Other to NAs in product_color
+df$product_color <- tolower(df$product_color)
+#table(df$product_color)
+df$product_color[is.na(df$product_color)] <- 'other'
+df$product_color <- gsub("\\s+","",df$product_color)
+df$product_color[(df$product_color %in% c("orange-red", "blackwhite", "multicolor",
+                                          "camouflage", "rainbow"))] <- 'multicolor'
+df$product_color[(df$product_color %in% c("lightgrey", "lightgray", "gray", "grey"))] <- 'gray'
+df$product_color[(df$product_color %in% c("applegreen","armygreen","darkgreen","green","mintgreen",
+                                          "lightgreen", "fluorescentgreen", "flourescentgreen"))] <- 'green'
+df$product_color[(df$product_color %in% c("red","coralred","winered","rosered","watermelonred", 
+                                          "lightred", "rose", "burgundy"))] <- 'red'
+df$product_color[(df$product_color %in% c("blue","darkblue","denimblue","lightblue",
+                                          "navyblue", "prussianblue", "skyblue", "lakeblue", "navy"))] <- 'blue'
+df$product_color[(df$product_color %in% c("white","whitefloral","whitestripe", "offwhite", "ivory"))] <- 'white'
+df$product_color[(df$product_color %in% c("black","offblack", "coolblack"))] <- 'black'
+df$product_color[(df$product_color %in% c("pink","dustypink","lightpink", "rosegold"))] <- 'pink'
+df$product_color[(df$product_color %in% c("brown","lightkhaki", "coffee", "khaki"))] <- 'brown'
+df$product_color[(df$product_color %in% c("yellow","lightyellow", "gold"))] <- 'yellow'
+df$product_color[(df$product_color %in% c("purple","lightpurple", "violet"))] <- 'purple'
+df$product_color[(df$product_color %in% c("orange","apricot"))] <- 'orange'
+df$product_color[(df$product_color %in% c("army", "leopard", "leopardprint","greysnakeskinprint", 
+                                          "camel", "tan", "star", "floral", "wine", "claret", "jasper", "nude"))] <- 'other'
+
+table(df$product_color)
+
+for (i in 1:nrow(df))
+{
+  if(length(strsplit(df$product_color[i], "&")[[1]]) >1)
+    {
+      df$product_color[i] <- "multicolor"
+      
+    }
+  
+  
+}
+
+
+# Temp Prod Color with frequency percentage
+temp_prod_color_df <- df %>% count(df$product_color, sort = TRUE)
+temp_prod_color_df <- cbind(temp_prod_color_df, temp_prod_color_df$n/sum(temp_prod_color_df$n))
+temp_prod_color_df
+```
+
+
+### product_variation_size_id
+```{r }
+
+### ALMOST MATCHES WITH STATS ON KAGGLE
+df$product_variation_size_id[is.na(df$product_variation_size_id)] <- 'unknown'
+df$product_variation_size_id <- tolower(df$product_variation_size_id)
+df$product_variation_size_id <- str_replace(df$product_variation_size_id, "size", "")
+df$product_variation_size_id <- str_replace(df$product_variation_size_id, "-", "")
+#table(df$product_variation_size_id)
+
+df$product_variation_size_id[(df$product_variation_size_id %in% 
+                                c("043xl","3 layered anklet","40 cm ","30 cm ","80 x 200 cm", "baby float boat",
+                                  "round","first  generation", "au plug low quality", "base coat", "choose a", "unknown",
+                                  "suits", "choose a ", "base & top & matte top coat", "floating chair for kid",
+                                  "b", "h01", "20pcs10pairs", "1 pc.", "45 years","20pcs", "10pcs",
+                                  "40 cm", "100pcs", "100 x 100cm(39.3 x 39.3inch)", "pack of 1","white", "xxxs","xxxl",
+                                  "100 cm", "daughter 24m", "xxxxxl","6xl","5pairs", "5xl", "xxxxl", "10 ml",
+                                  "1m by 3m", "3xl", "s/m(child)", "1pc", "one ", "4xl",  "1","2pcs",  "5", "25",
+                                  "4", "29", "2", "60", "17"))] <- 'other'
+df$product_variation_size_id[(df$product_variation_size_id %in% c("s.","s","/s","s..","s pink","s (waist5862cm)",
+                                                                  "s(pink & black)", "uss", "s diameter 30cm",
+                                                                  "s(bust 88cm)", " s.", " s", "women  36", 
+                                                                  "us5.5eu35", "eu 35","pantss", "33", "34", "35", "25s", "-s"))] <- 's'
+df$product_variation_size_id[(df$product_variation_size_id %in% c("l.","l","32/l","eu39(us8)", "30 cm", "36"))] <- 'l'
+df$product_variation_size_id[(df$product_variation_size_id %in% c("m","m."," m","26(waist 72cm 28inch)", "women  37",
+                                                                  "us 6.5 (eu 37)"))] <- 'm'
+df$product_variation_size_id[(df$product_variation_size_id %in% c("xs","xs."," xs"))] <- 'xs'
+df$product_variation_size_id[(df$product_variation_size_id %in% c("xl","1 pc  xl","x   l"))] <- 'xl'
+df$product_variation_size_id[(df$product_variation_size_id %in% c("xxl","2xl"))] <- 'xxl'
+df$product_variation_size_id[(df$product_variation_size_id %in% c(" xxs","xxs"))] <- 'xxs'
+unique(df$product_variation_size_id)
+table(df$product_variation_size_id)
+
+# Temp Prod Variation size id with frequency percentage
+temp_prod_variation_size_id_df <- df %>% count(df$product_variation_size_id, sort = TRUE)
+temp_prod_variation_size_id_df <- cbind(temp_prod_variation_size_id_df , temp_prod_variation_size_id_df$n/sum(temp_prod_variation_size_id_df$n))
+temp_prod_variation_size_id_df 
+```
+
+
+### shipping_option_name
+```{r }
+table(df$shipping_option_name)
+df$shipping_option_name[(df$shipping_option_name %in% c("Ekspresowa wysyłka","Livraison Express"))] = "Express Shipping"
+df$shipping_option_name[(df$shipping_option_name %in% 
+                           c("الشحن القياسي","Spedizione standard", "Expediere Standard", 
+                             "Standardowa wysyłka", "Livraison standard", "Standardversand", 
+                             "Envío normal", "Standart Gönderi", "Стандартная доставка",
+                             "Envio Padrão", "การส่งสินค้ามาตรฐาน" ,"ការដឹកជញ្ជូនតាមស្តង់ដារ"))] = "Standard Shipping"
+
+table(df$shipping_option_name)
+
+```
+
+
+### urgency_text, origin_country
+```{r }
+
+## Urgency Text
+df$urgency_text[is.na(df$urgency_text)] <- 'None'
+df$urgency_text[(df$urgency_text=="NA")] <- 'None'
+df$urgency_text[(df$urgency_text=="Quantité limitée !")] = "Limited quantity"
+df$urgency_text[(df$urgency_text=="Réduction sur les achats en gros")] = "Discount on wholesale purchases"
+table(df$urgency_text)
+
+## Origin Country
+table(df$origin_country)
+df$origin_country[is.na(df$origin_country)] <- 'None'
+df$origin_country[is_empty(df$origin_country)] <- 'None'
+df$origin_country[(df$origin_country=="AT")] = "Austria"
+df$origin_country[(df$origin_country=="CN")] = "China"
+df$origin_country[(df$origin_country=="GB")] = "United Kingdom"
+df$origin_country[(df$origin_country=="SG")] = "Singapore"
+df$origin_country[(df$origin_country=="US")] = "USA"
+df$origin_country[(df$origin_country=="VE")] = "Venezuala"
+table(df$origin_country)
+```
+
+### tags
+```{r }
+df$tags_count <- sapply(strsplit(df$tags,','), length)
+table(df$units_sold, df$tags_count)
+
+
+
+```
+
+
+## Feature Engineering
+```{r }
+
+## ADDED @ VARS BELOW FROM KAGGLE
+#df$discount_amt = df$retail_price - df$price # creates a linear combination variable. It is redundant
+df$discount_percentage = (df$retail_price - df$price)/df$retail_price*100
+### 
+
+df$merchant_revenue <- df$retail_price*df$units_sold
+#df_final$merchant_profit <- df_final$merchant_revenue * 0.85 #creates a linear combination variable. Hence redundant
+#df_final$wish_profit <- df_final$merchant_revenue * 0.15 # creates a linear combination variable. Hence redundant
+
+##Rating vars
+##val/rating count
+
+# df$rating_one_count_perc <- df$rating_one_count/df$rating_count
+# df$rating_two_count_perc <- df$rating_two_count/df$rating_count
+# df$rating_three_count_perc <- df$rating_three_count/df$rating_count
+# df$rating_four_count_perc <- df$rating_four_count/df$rating_count
+# df$rating_five_count_perc <- df$rating_five_count/df$rating_count
+# 
+# df$rating_one_count_perc[is.na(df$rating_two_count_perc)] <- 0
+# 
+# df$rating_two_count_perc[is.na(df$rating_two_count_perc)] <- 0
+# 
+# df$rating_three_count_perc[is.na(df$rating_three_count_perc)] <- 0
+# 
+# df$rating_four_count_perc[is.na(df$rating_four_count_perc)] <- 0
+# 
+# df$rating_five_count_perc[is.na(df$rating_five_count_perc)] <- 0
+```
+
+
+## Remove Duplicates, Find residual NA's and remove them
+```{r }
+
+#Check if data contains missing values
+sum(is.na(df))
+
+#Check for the column types
+as.data.frame(cbind(lapply(df, class)))
+
+## Remove duplicate rows
+df <- df %>% distinct()
+df
+#write.csv(df, file = 'df.csv', row.names = F)
+dim(df)
+#Check if data contains missing values
+sum(is.na(df))
+#Show the  missing value counts with their column names
+NAcol <- which(colSums(is.na(df)) > 0)
+#df_na <- sort(colSums(sapply(df[NAcol], is.na)), decreasing = TRUE)
+#df_na
+df <- na.omit(df)
+#Check if data contains missing values
+sum(is.na(df))
+
+write.csv(df, file = 'final_df_part3.csv', row.names = F)
+
+```
+
+
+
+
+## Exploratory Data Analysis
+
+
+### Exploratory Data Analysis on Processed Data Set
+```{r}
+dim(df)
+
+numeric_cols <- unlist(sapply(df, is.numeric))
+numeric_cols
+
+EDA(df)
+describe(df)
+
+
+```
+
+
+### Exploratory Data Analysis on Transformed Data Set
+
+
+Method used is YeoJohnson
+
+```{r}
+
+
+transformed_list <- transformData(df)
+
+transformed_df <- transformed_list$transformed
+preprocessParams <- transformed_list$preprocessParams
+
+
+## Verify the skew values of original and transformed variables
+transformations <- cbind(as.data.frame(describe(df)[c("skew", "kurtosis")]), as.data.frame(describe(transformed_df)[c("skew", "kurtosis")]))
+colnames(transformations) <- c("skew_orig", "kurtosis_orig", "skew_trans", "kurtosis_trans")
+transformations[which(transformations$skew_orig != transformations$skew_trans),]
+
+cat ("\n\nThe list of transformed variables are:\n")
+preprocessParams$method$YeoJohnson
+
+cat ("\n\nThe list of transformed variables are:\n") 
+preprocessParams$method$ignore
+
+cat ("\n\nThe list of lambdas for transformed variables are:\n") 
+preprocessParams$yj
+
+yj_lambdas_df <- data.frame(preprocessParams$yj)
+yj_lambdas_df <- cbind(varName = rownames(yj_lambdas_df), yj_lambdas_df)
+rownames(yj_lambdas_df) <- 1:nrow(yj_lambdas_df)
+colnames(yj_lambdas_df) <- c("varName", "lambda")
+yj_lambdas_df
+write.csv(yj_lambdas_df, file = 'yj_lambdas.csv', row.names = F)
+
+dim(transformed_df)
+EDA(transformed_df)
+describe(transformed_df)
+
+
+numeric_cols <- unlist(sapply(df, is.numeric))
+stats_transformed_df <- describe(transformed_df[,numeric_cols])
+stats_df <- describe(df[,numeric_cols])
+skew_stats <- cbind(stats_df$skew, stats_transformed_df$skew, stats_df$kurtosis, stats_transformed_df$kurtosis)
+colnames(skew_stats) <- c("preTrasformed_skew", "transformed_skew","pretransformed_kurtosis", "transformed_kurtosis")
+skew_stats <- as.data.frame(skew_stats)
+rownames(skew_stats) <- rownames(stats_df)
+#skew_stats <- as.data.frame(skew_stats)
+
+
+```
+
+
+
+## One-hot encoding of character variables
+```{r }
+# Use dummyVars function in Caret package for One-hot encoding
+## VARIABLES FOR ONE-HOT ENCODING BELOW
+##"product_color", "product_variation_size_id", "urgency_text", "origin_country")
+transformed_df <- mutate_at(transformed_df, vars("product_color", "product_variation_size_id", "urgency_text", "origin_country"), as.factor)
+factor_cols <- unlist(sapply(transformed_df, is.factor))
+factor_names <- names(transformed_df[,factor_cols])
+factor_names
+dummy <- dummyVars(" ~ .", data = transformed_df[factor_names])
+df_trans <- data.frame(predict(dummy, newdata = transformed_df))
+factors_names <- unlist(factor_names)
+transformed_df <- cbind(transformed_df, df_trans)
+
+transformed_df <- transformed_df[!names(transformed_df) %in% factor_names]
+
+write.csv(transformed_df, file = 'final_transformed_df_part3.csv', row.names = F)
+```
+
+
+
+
+## Random Forests
+```{r collapse=TRUE, fig.height=10, fig.width=10}
+numeric_cols <- unlist(sapply(transformed_df, is.numeric))
+transformed_df = transformed_df[, numeric_cols]
+
+#Check variable importance post transformation
+set.seed(100)
+#check variable importance using random forests
+
+#Pre transformed data set
+names(df)
+df_rf <- randomForest(x=df[, -which(names(df) %in% c("units_sold"))], y=df$units_sold[1:nrow(df)], ntree=500, importance=TRUE)
+varImpPlot(df_rf)
+
+#Post transformed data set
+names(transformed_df)
+trans_df_rf <- randomForest(x=transformed_df[, -which(names(transformed_df) %in% c("units_sold"))], y=transformed_df$units_sold[1:nrow(transformed_df)], ntree=500, importance=TRUE)
+varImpPlot(trans_df_rf)
+```
+
+
+## Final Processing
+
+Post data cleaning, I am going to run the below - 
+
+```{r  fig.height=10, fig.width=10}
+
+## remove linear combinations
+transformed_df <- linearCombos(transformed_df)
+
+## remove zero var variables
+transformed_df <- zeroVar(transformed_df)
+dim(transformed_df)
+
+#corr_df(df_final, cutoff=0.30)
+## remove predictor variables to eliminate multicollinearity
+
+df_final <- multiCorr(transformed_df, cutoff=0.80)
+head(df_final)
+
+### The best cutoff value is 0.3 
+#numeric_cols <- unlist(sapply(df_final, is.numeric))
+corr_df(df_final, cutoff=0.30)
+#corrplot::corrplot(corr_matrix, method="number", type="upper", tl.col="black", tl.srt=45)
+  
+df_corr <- final_df_cor(df_final, cutoff=0.30)
+
+
+df_final <- transformed_df[c("units_sold", "rating_count", "rating", "merchant_rating", "merchant_rating_count", "shipping_option_price", "retail_price", "tags_count", "uses_ad_boosts" )]
+
+write.csv(df_final, file = 'model_predictor_vars.csv', row.names = F)
+
+
+
+```
+
+
+
+
+### Drop and redundant character columns
+###Give a unique ID to each row prior to split
+```{r }
+#unique row id
+#df_final$id <- 1:nrow(df_final)
+
+#At this point any additional character variables are not important and can be dropped
+numeric_cols <- unlist(sapply(df_final, is.numeric))
+
+#drop_cols = c("title", "tags", "title_orig", "merchant_name", "merchant_id", "product_id", "merchant_title", "merchant_info_subtitle","merchant_profile_picture", "product_url", "product_picture", "countries_shipped_to", "shipping_option_name", "rating_five_count", "rating_four_count", "rating_three_count", "rating_two_count")
+#my_drop_cols <- names(transformed_df) %in% drop_cols
+df_final = df_final[, numeric_cols]
+dim(df_final)
+names(df_final)
+as.data.frame(cbind(lapply(df_final, class)))
+```
+
+
+## Data Partition
+```{r} 
+
+
+##### Data Partition 0.7/0.3 (Train/Test) #####
+set.seed(100)
+sampling_vector <- createDataPartition(df_final$units_sold, p=0.70, list=FALSE)
+df_train <- df_final[sampling_vector,]
+df_test <- df_final[-sampling_vector,]
+xtrain <- df_train[,-which(names(df_train) %in% c("units_sold"))]
+ytrain <- df_train$units_sold
+xtest <- df_test[,-which(names(df_test) %in% c("units_sold"))]
+ytest <- df_test$units_sold
+
+write.csv(df_train, file = 'df_train.csv', row.names = F)
+write.csv(df_test, file = 'df_test.csv', row.names = F)
+
+```
+
+
+
+
+
+## Run multiple regression methods {.tabset}
+
+```{r }
+
+#### Multiple Linear Regression ####
+set.seed(100)
+lm.fit <- lm(units_sold ~ ., data=df_train)
+lm.fit <- train(units_sold ~ ., data = df_train, method = "lm")
+#plot(lm.fit)
+  
+lm.fit$bestTune
+summary(lm.fit$finalModel)
+coefs <- lm.fit$finalModel$coefficients
+alias(lm.fit$finalModel)
+lm.fit.resid <- lm.fit$finalModel$residuals
+qqnorm(lm.fit.resid, main="Normal Q-Q Plot for units_sold")
+qqline(lm.fit.resid)
+plot(lm.fit$finalModel$fitted.values, lm.fit.resid, 
+     ylab="Residuals", xlab="Units Sold", 
+     main="Residuals (vs) Fits") 
+abline(0, 0, col=10)
+lm.pred.train <- lm.fit %>% predict(df_train)
+lm.train.mse <- caret::RMSE(lm.pred.train, df_train$units_sold)
+lm.rsq = summary(lm.fit$finalModel)$r.squared
+
+lm.pred.test <- lm.fit %>% predict(df_test)
+lm.test.mse <- caret::RMSE(lm.pred.test, df_test$units_sold)
+
+anova(lm.fit$finalModel)
+# 
+# library(boot) 
+
+# 
+# glm.fit <- glm(units_sold~., data=df_train)
+# cv.mse=cv.glm(df_train, glm.fit, K=10)
+# cv.lm.mse <- cv.mse$delta[1]
+#cv.lm.rsq = 1-(cv.mse$delta[1]/var(df_final$units_sold))
+
+
+
+#vif(lm.fit)
+#create vector of VIF values
+#vif_values <- vif(lm.fit)
+
+#create horizontal bar chart to display each VIF value
+#barplot(vif_values, main = "VIF Values", horiz = TRUE, col = "steelblue")
+
+#add vertical line at 5
+#abline(v = 5, lwd = 3, lty = 2)
+
+```
+
+
+
+
+
+
+```{r }
+#### Forward, Backward and Both Selection ####
+### FORWARD ###
+set.seed(100)
+model <- lm(units_sold~., data=df_train)
+
+lm.forward.fit <- stepAIC(model, direction="forward")
+lm.forward.fit$anova 
+lm.forward.fit.pred <- predict(lm.forward.fit, data=df_train, type = "response")
+plot(lm.forward.fit$fitted.values, lm.forward.fit$residuals, 
+     ylab="Residuals", xlab="Fits", 
+     main="Residuals (vs) Fits") 
+abline(0, 0, col=10)
+summary(lm.forward.fit)
+lm.forward.train.mse <- compute_MSE(lm.forward.fit.pred, ytrain)
+lm.forward.train.rsq = 1-(lm.forward.train.mse/var(ytrain))
+
+lm.forward.fit.pred.test <- predict(lm.forward.fit, data=df_test, type = "response")
+lm.forward.test.mse <- compute_MSE(lm.forward.fit.pred.test, ytest)
+lm.forward.test.rsq = 1-(lm.forward.test.mse/var(ytest))
+
+#### BACKWARD ###
+set.seed(100)
+lm.backward.fit <- stepAIC(model, direction="backward")
+lm.backward.fit$anova 
+lm.backward.fit.pred <- predict(lm.backward.fit, data=df_train, type = "response")
+plot(lm.backward.fit$fitted.values, lm.backward.fit$residuals, 
+     ylab="Residuals", xlab="Fits", 
+     main="Residuals (vs) Fits") 
+abline(0, 0, col=10)
+summary(lm.backward.fit)
+lm.backward.train.mse <- compute_MSE(lm.backward.fit.pred, ytrain)
+lm.backward.train.rsq = 1-(lm.backward.train.mse/var(ytrain))
+
+lm.backward.fit.pred.test <- predict(lm.backward.fit, data=df_test, type = "response")
+lm.backward.test.mse <- compute_MSE(lm.backward.fit.pred.test, ytest)
+lm.backward.test.rsq = 1-(lm.backward.test.mse/var(ytest))
+
+### BOTH ###
+set.seed(100)
+lm.both.fit <- stepAIC(model, direction="both")
+lm.both.fit$anova 
+lm.both.fit.pred <- predict(lm.both.fit, data=df_train, type = "response")
+plot(lm.both.fit$fitted.values, lm.both.fit$residuals, 
+     ylab="Residuals", xlab="Fits", 
+     main="Residuals (vs) Fits") 
+abline(0, 0, col=10)
+summary(lm.both.fit)
+lm.both.train.mse <- compute_MSE(lm.both.fit.pred, ytrain)
+lm.both.train.rsq = 1-(lm.both.train.mse/var(ytrain))
+
+lm.both.fit.pred.test <- predict(lm.both.fit, data=df_test, type = "response")
+lm.both.test.mse <- compute_MSE(lm.both.fit.pred.test, ytest)
+lm.both.test.rsq = 1-(lm.both.test.mse/var(ytest))
+
+### Test of Anova
+anova(lm.forward.fit, lm.backward.fit, lm.both.fit)
+
+
+
+```
+
+
+
+## Ridge Regression and Lasso Regression with Cross Validation
+```{r }
+
+### Regression Models Set Up Data#
+
+
+
+#At this point any additional character variables are not important and can be dropped
+#numeric_cols <- unlist(sapply(transformed_df, is.numeric))
+#df_final = transformed_df
+set.seed(100) 
+x <- model.matrix(units_sold~., df_train)[,-1]
+y <- df_train$units_sold
+lambdas <- 10^seq(-3, 5, length.out = 100)
+
+#### Ridge Regression ####
+set.seed(100)
+ridge.cv <- cv.glmnet(x, y, alpha=0, lambda = lambdas,
+                      standardize = TRUE, nfolds = 10)
+lambda_ridge <- ridge.cv$lambda.min
+lambda_ridge
+plot(ridge.cv)
+units_sold_ridge_model <- glmnet(x, y, alpha=0, lambda = lambda_ridge, standardize = TRUE)
+coef(units_sold_ridge_model)
+ridge_pred <- predict(units_sold_ridge_model, s=lambda_ridge, newx=x) 
+ridge.train.mse <- compute_MSE(ridge_pred, y)
+ridge.train.mse
+
+ridge_pred.test <- predict(units_sold_ridge_model, s=lambda_ridge, newx=model.matrix(units_sold~., df_test)[,-1]) 
+ridge.test.mse <- compute_MSE(ridge_pred.test, df_test$units_sold)
+ridge.test.mse
+
+
+ridge.rsq <- cor(y, ridge_pred)^2
+ridge.rsq
+
+ridge.rsq.test <- cor(df_test$units_sold, ridge_pred.test)^2
+ridge.rsq.test
+
+
+
+```
+
+```{r }
+#### Lasso Regression ####
+
+set.seed(100)
+
+
+lasso.cv <- cv.glmnet(x, y, alpha=1, lambda = lambdas,
+                      standardize = TRUE, nfolds = 10)
+summary(lasso.cv)
+lambda_lasso <- lasso.cv$lambda.min
+lambda_lasso
+plot(lasso.cv)
+units_sold_lasso <- glmnet(x, y, alpha=1, lambda = lambda_lasso, standardize = TRUE)
+lasso_pred <- predict(units_sold_lasso, s=lambda_lasso, newx=x)
+lasso.train.mse <- compute_MSE(lasso_pred, y)
+lasso.train.mse
+
+lasso_pred.test <- predict(units_sold_lasso, s=lambda_lasso, newx=model.matrix(units_sold~., df_test)[,-1])
+lasso.test.mse <- compute_MSE(lasso_pred.test, df_test$units_sold)
+lasso.test.mse
+coef(units_sold_lasso)
+
+lasso.rsq <- cor(y, lasso_pred)^2
+lasso.rsq
+lasso.rsq.test <- cor(df_test$units_sold, lasso_pred.test)^2
+lasso.rsq.test
+
+
+```
+
+## Support Vector Regression
+
+```{r}
+
+set.seed(100)
+ svm.model <- svm(units_sold ~. , data=df_train, kernel="linear")
+#  
+svm.pred <- predict(svm.model, df_train)
+#  
+# #points(data$X, predictedY, col = "red", pch=4)
+svm.train.mse <- compute_MSE(svm.pred, df_train$units_sold)
+svm.train.mse
+# 
+svm.pred.test <- predict(svm.model, df_test)
+#  
+# #points(data$X, predictedY, col = "red", pch=4)
+svm.test.mse <- compute_MSE(svm.pred.test, df_test$units_sold)
+svm.test.mse
+#coefficients
+#svm.coef<- t(svm.model$coefs) %*% svm.model$SV
+#intercept <- svm.model$rho
+svm.coef <- coef(svm.model, ncomp = min_comp, intercept = TRUE)
+
+
+#### Tune SVM
+set.seed(100)
+tuneResult <- tune(svm, units_sold ~.,  data = df_train,
+              ranges = list(epsilon = seq(0.2,0.7,0.1))
+)
+print(tuneResult)
+# Draw the tuning graph
+plot(tuneResult)
+
+svm.tunedModel <- tuneResult$best.model
+svm.pred.train <- predict(svm.tunedModel, df_train) 
+svm.train.mse <- compute_MSE(svm.pred.train, df_train$units_sold)
+svm.train.mse
+
+svm.pred.test <- predict(svm.tunedModel, df_test)
+svm.test.mse <- compute_MSE(svm.pred.test, df_test$units_sold)
+svm.test.mse 
+
+
+svm.rsq <- cor(df_train$units_sold, svm.pred.train)^2
+svm.rsq
+svm.rsq.test <- cor(df_test$units_sold, svm.pred.test)^2
+svm.rsq.test
+
+```
+
+
+
+## Partial Least Squares (PLS) Regression & Principal Component Regressionn 
+
+## Partial Least Squares (PLS) Regression
+## Principal Component Regressionn
+
+
+```{r}
+pls.stats <- pls_pcr(df_train, df_test, "pls")
+pcr.stats <- pls_pcr(df_train, df_test, "pcr")
+
+```
+
+
+
+## Elastic Net Regression
+
+```{r definition, echo = FALSE}
+
+  
+  ecNet.fit <- train(units_sold ~ ., data = df_train, method = "glmnet",
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+  )
+  plot(ecNet.fit)
+  
+  ecNet.fit$bestTune
+  summary(ecNet.fit$finalModel)
+  coefs <- coef(ecNet.fit$finalModel, ecNet.fit$bestTune$lambda)
+  
+  # Make predictions on Train set
+  ecNet.pred.train <- ecNet.fit %>% predict(df_train)
+  # Model performance metrics
+ 
+  RMSE.train <-  caret::RMSE(ecNet.pred.train, df_train$units_sold)
+  Rsquare.train <- caret::R2(ecNet.pred.train, df_train$units_sold)
+
+  
+  # Make predictions on Test set
+  ecNet.pred.test <-ecNet.fit %>% predict(df_test)
+  # Model performance metrics
+  
+  RMSE.test <- caret::RMSE(ecNet.pred.test, df_test$units_sold)
+  Rsquare.test <- caret::R2(ecNet.pred.test, df_test$units_sold)
+  
+  ecNet.stats <- list(ecNet.mse.train=RMSE.train, ecNet.rsq.train=Rsquare.train, ecNet.mse.test=RMSE.test, ecNet.rsq.test=Rsquare.test, coefs=coefs)
+
+
+```
+
+
+
+### Poisson Regression
+```{r}
+set.seed(100)
+pos.fit<-glm(units_sold~., data = df_train, family=poisson)
+summary(pos.fit)
+
+alias(pos.fit)
+pos.fit.resid <- pos.fit$residuals
+qqnorm(pos.fit.resid, main="Normal Q-Q Plot for units_sold")
+qqline(pos.fit.resid)
+plot(pos.fit$fitted.values, pos.fit.resid, 
+     ylab="Residuals", xlab="Units Sold", 
+     main="Residuals (vs) Fits") 
+abline(0, 0, col=10)
+pos.pred.train <- pos.fit %>% predict(df_train)
+pos.train.mse <- caret::RMSE(pos.pred.train, df_train$units_sold)
+pos.rsq = 1-(pos.train.mse/var(df_train$units_sold))
+
+pos.pred.test <- pos.fit %>% predict(df_test)
+pos.test.mse <- compute_MSE(pos.pred.test,df_test$units_sold)
+
+
+```
+
+
+## XGBoost Linear Model with cross validation and Model Training with Grid Search
+
+```{r pyEnv}
+#library(reticulate)
+#If you have virtualenv use the below
+#use_virtualenv("capstone", required=TRUE)
+
+#without virtual env use below
+#use_python("/usr/local/bin/python3", required = T)
+
+```
+
+
+```{r pyModules}
+
+## Do a 'brew install libomp' if xgboost fails to load
+#source_python("/Users/chetanak/OneDrive/capstone/test.py")
+
+
+
+```
+
+
+### Regression Model Stats
+
+```{r}
+model_stats <- data.frame(
+                  Models = c("Multiple Linear Regression", "Linear Regression - Forward Selection", "Linear Regression - Backward Selection", "Linear Regression - Both Selection", "Ridge Regression", "Lasso Regression", "ElasticNet", "Support Vector Regression", "Partial Least Squares", "Principal Component Regression", "Poisson Regr"),
+                 Train.MSE = c(lm.train.mse, lm.forward.train.mse, lm.backward.train.mse, lm.both.train.mse, ridge.train.mse, lasso.train.mse, ecNet.stats$ecNet.mse.train, svm.train.mse, pls.stats$mse.train, pcr.stats$mse.train, pos.train.mse),
+                 Test.MSE = c(lm.test.mse, lm.forward.test.mse, lm.backward.test.mse, lm.both.test.mse, ridge.test.mse, lasso.test.mse, ecNet.stats$ecNet.mse.test, svm.test.mse, pls.stats$mse.test, pcr.stats$mse.test, pos.train.mse),
+                 RSQ = c(lm.rsq, lm.forward.train.rsq, lm.backward.train.rsq, lm.both.train.rsq, ridge.rsq, lasso.rsq, ecNet.stats$ecNet.rsq.train, svm.rsq, pls.stats$rsq.train, pcr.stats$rsq.train, pos.rsq )
+                 )
+model_stats
+
+```
+
+## Final Model
+
+```{r}
+
+
+model_coef_table=cbind(coefs, coef(lm.forward.fit), coef(ridge.cv),coef(lasso.cv), ecNet.stats$coefs, svm.coef, pls.stats$coefs, pcr.stats$coefs, coef(pos.fit) )
+colnames(model_coef_table)=c("Multiple Linear Reg", "LM.Forward.Fit","Ridge","Lasso", "ElasticNet", "Support Vector Reg", "Partial Least Squares",  "PCR", "Poisson Regr")
+model_coef_table
+
+model_aic_table <- cbind(AIC(lm.fit$finalModel), AIC(lm.forward.fit),AIC(lm.backward.fit),AIC(lm.both.fit))
+colnames(model_aic_table)=c("Full LM.FIT","lm.forward.FIT","lm.backward.FIT","lm.both.FIT")
+rownames(model_aic_table) <- c("AIC")
+
+
+model_aic_table
+```
+
+#### Additional exploration
+
+```{r}
+# install.packages("splitstackshape")
+# library(splitstackshape)
+# tags <- cSplit(df, "tags", ",")
+
+
+
+```
+
+### Add constraints
+
+#### STILL A WORK IN PROGRESS. 
+
+picking a lasso  regression model since the MSE and R-sq values are higher on Lasso
+
+```{r }}
+# model_coef_table=cbind(coef(ridge.cv),coef(lasso.cv))
+# colnames(model_coef_table)=c("Ridge","Lasso")
+# model_coef_table
+# 
+# model_stats <- cbind("Ridge Reg" = c(ridge.rsq, ridge.mse, lambda.ridge ), "Lasso Reg" = c(lasso.rsq, lasso.mse, lambda.lasso ))
+# rownames(model_stats) <- c("R-Sq", "MSE", "lambda")
+# print(model_stats)
+# 
+# # MODEL
+# #units_sold <-  2.92079689 + 0.71552339 * rating_count - 0.12098939 * shipping_option_price + -0.11185850  * retail_price +    0.06103382 * users_ad_boosts
+# 
+# PE = -0.136518900 * mean(df_final$retail_price)/mean(df_final$units_sold)
+# 
+# PE
+
+
+#This means that an increase in the price of product by 1 unit will decrease the sales by -0.0334673 units.
+
+#Subset by product ID and expand the definition of PE by adding additional constraints
+
+#Identify the lambdas and inverse transform the variables to get an accurate calculation
+
+# create the below columns
+#1. change in retail price
+#2. change in revenue for wish and seller
+#3. compare the actual retail price (vs) predicted retail price
+#4. compare the cutoff increase and decrease in the price range that would impact sales.
+
+
+
+
+```
+
+
+
+
+# Price Elasticity of demand of a product
+
+
+
+## Create a table for Lasso and Ridge stats
+### Add the Lm fit for OLS
+
+
+
+### Iterate over the model with constraints to identify the best price for each good
+
+### Calculate the profit margin for each sellers and the wish royalty overall. They should either be same or increased
+
+
+
+

@@ -1,0 +1,24 @@
+#ignore folders
+
+capstone/**
+PE/**
+.config/**
+.rstudio/**
+.ipynb_checkpoints/**
+.local/**
+
+#ignore files
+
+.DS_Store
+.RData
+.Rhistory
+df_*.csv
+final_*.csv
+*.rds
+capstone*
+model_predictor_vars.csv
+yeoJ_trans.R
+yj_lambdas.csv
+
+
+
